@@ -21,7 +21,7 @@ root_data_folder: !PLACEHOLDER
 # data folder is the place where the json files will be stored prior to training
 data_folder: !ref <root_data_folder>/json_version/
 lang: "fr" #for the BLEU score detokenization
-vocab_size: 1000 #for SentencePiece tokenizer (unigram)
+vocab_size: 10000 #for SentencePiece tokenizer (unigram)
 
 annotation_train: !ref <data_folder>/train.json
 annotation_valid: !ref <data_folder>/valid.json
@@ -30,37 +30,43 @@ skip_prep: False
 
 # URL for the HuggingFace model we want to load (BASE here)
 wav2vec2_hub: LIA-AvignonUniversity/IWSLT2022-tamasheq-only
+# wav2vec2_hub: facebook/wav2vec2-base-960h
 wav2vec2_folder: !ref <save_folder>/wav2vec2_checkpoint
 
 # wav2vec 2.0 specific parameters
-wav2vec2_frozen: False
+wav2vec2_frozen: True
 keep_n_layers: 6 # keep first N layers from the Transformer Encoder stack inside the wav2vec 2.0 model
 
 ####################### Training Parameters ####################################
 number_of_epochs: 100
 lr: 0.001
 lr_wav2vec: 0.00001
-batch_size: 4
-test_batch_size: 4
+batch_size: 1
+test_batch_size: 1
 loss_reduction: batchmean
 ckpt_interval_minutes: 15 # save checkpoint every N min
+limit_training_signal_len: True
+# this is the length of sequences if we choose to limit
+# the signal length of training sequences
+training_signal_len: 40000
+
 
 # Data sorting parameters: sorting_debug_duration replaces sorting_min_duration in debug mode
 sorting: ascending
 sorting_min_duration: 1
-sorting_debug_duration: 3
-sorting_max_duration: 5
+sorting_debug_duration: 2
+sorting_max_duration: 3
 
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <number_of_epochs>
 
 dataloader_options:
     batch_size: !ref <batch_size>
-    num_workers: 4
+    num_workers: 1
 
 test_dataloader_options:
     batch_size: !ref <test_batch_size>
-    num_workers: 4
+    num_workers: 1
 
 # Feature parameters (W2V2 etc)
 features_dim: 768 # base wav2vec output dimension, for large replace by 1024

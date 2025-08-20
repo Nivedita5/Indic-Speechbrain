@@ -316,6 +316,12 @@ def read_audio(waveforms_obj, backend=None):
             waveforms_obj = BytesIO(waveforms_obj)
             waveforms_obj.seek(0)
         audio, _ = torchaudio.load(waveforms_obj, backend=backend)
+        # try: 
+        #     audio, _ = torchaudio.load(waveforms_obj, backend=backend)
+        # except (OSError, IOError) as e:
+        #     print(f"Failed to open: {e}")
+        #     return None
+        
     # Case 2: A dict with more options. Only works with file paths.
     else:
         path = waveforms_obj["file"]

@@ -119,7 +119,7 @@ class TransformerST(TransformerASR):
         encoder_module: Optional[str] = "transformer",
         conformer_activation: Optional[nn.Module] = Swish,
         attention_type: Optional[str] = "regularMHA",
-        max_length: Optional[int] = 2500,
+        max_length: Optional[int] = 7000,
         causal: Optional[bool] = True,
         ctc_weight: float = 0.0,
         asr_weight: float = 0.0,

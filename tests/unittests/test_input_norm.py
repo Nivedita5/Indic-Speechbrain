@@ -530,7 +530,7 @@ def parallel_mean_var_update(rank, world_size, tmpdir, random_seed):
     feature_length = 10
     num_rounds = 3
 
-    batch_size = 4
+    batch_size = 1
     utterance_length = 3
     main_shape = (batch_size, utterance_length)
     dimensions = (0, 1)

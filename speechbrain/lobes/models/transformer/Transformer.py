@@ -115,7 +115,7 @@ class TransformerInterface(nn.Module):
         conformer_activation: type = Swish,
         branchformer_activation: type = nn.GELU,
         attention_type: str = "regularMHA",
-        max_length: int = 2500,
+        max_length: int = 7000,
         causal: bool = False,
         encoder_kdim: Optional[int] = None,
         encoder_vdim: Optional[int] = None,

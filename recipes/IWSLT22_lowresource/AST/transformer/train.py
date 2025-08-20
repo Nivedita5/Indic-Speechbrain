@@ -384,6 +384,7 @@ if __name__ == "__main__":
 
     # Data preparation
     import prepare_iwslt22
+    # import prepare_indicst
 
     if not hparams["skip_prep"]:
         run_on_main(

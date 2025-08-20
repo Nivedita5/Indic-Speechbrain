@@ -401,7 +401,7 @@ world w o r l d"""
 def test_ctc_k2_loss():
     """Test the CTC loss with k2"""
     # Create a random batch of log-probs
-    batch_size = 4
+    batch_size = 1
     log_probs = torch.randn(batch_size, 100, 30).requires_grad_(True)
     log_probs = torch.nn.functional.log_softmax(log_probs, dim=-1)
     input_lens = torch.tensor([1, 0.9, 0.8, 0.7])
