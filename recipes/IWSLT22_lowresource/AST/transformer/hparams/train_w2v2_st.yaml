@@ -38,7 +38,7 @@ wav2vec2_frozen: True
 keep_n_layers: 6 # keep first N layers from the Transformer Encoder stack inside the wav2vec 2.0 model
 
 ####################### Training Parameters ####################################
-number_of_epochs: 100
+number_of_epochs: 500
 lr: 0.001
 lr_wav2vec: 0.00001
 batch_size: 1
