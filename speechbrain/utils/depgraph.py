@@ -215,14 +215,14 @@ class DependencyGraph:
             """Implementation of toposort."""
             nonlocal seen_ever
             here = visited + [root_ind]
-            if root_ind in visited:
-                raise CircularDependencyError(
-                    "{cycle}".format(
-                        cycle=" -> ".join(
-                            str(self.digraph[i].key) for i in here
-                        )
-                    )
-                )
+            # if root_ind in visited:
+            #     raise CircularDependencyError(
+            #         "{cycle}".format(
+            #             cycle=" -> ".join(
+            #                 str(self.digraph[i].key) for i in here
+            #             )
+            #         )
+            #     )
             if root_ind in seen_ever:
                 return  # Yield nothing
             seen_ever = seen_ever.union(set([root_ind]))

@@ -71,6 +71,7 @@ def load_data_json(json_path, replacements={}):
 
     """
     with open(json_path, "r", encoding="utf-8") as f:
+        print("json_path:", json_path)
         out_json = json.load(f)
     _recursive_format(out_json, replacements)
     return out_json

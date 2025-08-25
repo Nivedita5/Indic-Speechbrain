@@ -14,7 +14,7 @@ __set_seed: !apply:torch.manual_seed [!ref <seed>]
 project: Mamba-ASR
 experiment: conmamba_S_S2S
 output_folder: !ref results/S2S/<experiment>/<seed>
-output_wer_folder: !ref <output_folder>/
+output_bleu_folder: !ref <output_folder>/
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 
@@ -27,7 +27,8 @@ train_log: !ref <output_folder>/train_log.txt
 pretrained_lm_tokenizer_path: speechbrain/asr-transformer-transformerlm-librispeech
 
 # Data files
-data_folder: !PLACEHOLDER
+root_data_folder: !PLACEHOLDER
+data_folder: !ref <root_data_folder>/json
 # If RIRS_NOISES dir exists in /localscratch/xxx_corpus/RIRS_NOISES
 # then data_folder_rirs should be /localscratch/xxx_corpus
 # otherwise the dataset will automatically be downloaded
@@ -36,11 +37,10 @@ train_splits: ["train"]
 dev_splits: ["valid"]
 test_splits: ["test"]
 skip_prep: False
-train_csv: !ref <output_folder>/train.csv
-valid_csv: !ref <output_folder>/dev-clean.csv
-test_csv:
-    - !ref <output_folder>/test-clean.csv
-    - !ref <output_folder>/test-other.csv
+train_json: !ref <data_folder>/train.json
+valid_json: !ref <data_folder>/valid.json
+test_json: !ref <data_folder>/test.json
+    # - !ref <output_folder>/test-other.csv
 
 skip_train: False
 no_lm: False
@@ -73,7 +73,7 @@ n_mels: 80
 
 # This setup works well for V100 32GB GPU, adapts it to your needs.
 # Or turn it off (but training speed will decrease)
-dynamic_batching: True
+dynamic_batching: False
 max_batch_length_train: 900
 max_batch_length_val: 100 # we reduce it as the beam is much wider (VRAM)
 num_bucket: 200
@@ -157,7 +157,7 @@ CNN: !new:speechbrain.lobes.models.convolution.ConvolutionFrontEnd
     strides: (2, 2)
     residuals: (False, False)
 
-Transformer: !new:modules.TransformerASR.TransformerASR # yamllint disable-line rule:line-length
+Transformer: !new:recipes.IWSLT22_lowresource.AST.transformer.modules.TransformerST.TransformerST # yamllint disable-line rule:line-length
     input_size: 640
     tgt_vocab: !ref <output_neurons>
     d_model: !ref <d_model>
@@ -189,7 +189,7 @@ lm_model: !new:speechbrain.lobes.models.transformer.TransformerLM.TransformerLM 
     normalize_before: False
 
 tokenizer: !new:sentencepiece.SentencePieceProcessor
-
+# /Mamba-ASR/Data/IWSLT2022_Tamasheq_data/taq_fra_clean
 ctc_lin: !new:speechbrain.nnet.linear.Linear
     input_size: !ref <d_model>
     n_neurons: !ref <output_neurons>
@@ -357,7 +357,8 @@ compute_features: !new:speechbrain.lobes.features.Fbank
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
 
-error_rate_computer: !name:speechbrain.utils.metric_stats.ErrorRateStats
+# error_rate_computer: !name:speechbrain.utils.metric_stats.ErrorRateStats
+bleu_computer: !name:speechbrain.integrations.nlp.bleu.BLEUStats
 acc_computer: !name:speechbrain.utils.Accuracy.AccuracyStats
 
 # The pretrainer allows a mapping between pretrained files and instances that

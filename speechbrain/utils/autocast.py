@@ -186,6 +186,7 @@ def fwd_default_precision(
     # cannot even reliably warn about the issue. For now, we just document the
     # problem.
     wrapped_fwd = torch.cuda.amp.custom_fwd(fwd, cast_inputs=cast_inputs)
+    # wrapped_fwd = torch.amp.custom_fwd(fwd, cast_inputs=cast_inputs, device_type='cuda')
 
     @functools.wraps(fwd)
     def wrapper(*args, force_allow_autocast: bool = False, **kwargs):

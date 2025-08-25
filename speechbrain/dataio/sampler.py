@@ -597,7 +597,8 @@ class DynamicBatchSampler(Sampler):
 
         for idx in sampler:
             # length of pre-sampled audio
-            item_len = self._ex_lengths[str(idx)]
+            item_len = float(self._ex_lengths[str(idx)])
+            # print("item_len:", type(item_len))
             # bucket to fill up most padding
             bucket_id = np.searchsorted(self._bucket_boundaries, item_len)
             # fill audio's duration into that bucket

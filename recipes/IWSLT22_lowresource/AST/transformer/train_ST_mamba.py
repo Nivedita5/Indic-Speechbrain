@@ -126,7 +126,7 @@ class ST(sb.core.Brain):
         # # st loss
         # loss = self.hparams.seq_cost(p_seq, tokens_eos, length=tokens_eos_lens)
 
-         if stage == sb.Stage.TRAIN:
+        if stage == sb.Stage.TRAIN:
             if hasattr(self.hparams, "fea_augment"):
                 tokens = self.hparams.fea_augment.replicate_labels(tokens)
                 tokens_lens = self.hparams.fea_augment.replicate_labels(
@@ -183,7 +183,7 @@ class ST(sb.core.Brain):
                     tokenizer.decode_ids(utt_seq).split(" ") for utt_seq in hyps
                 ]
                 target_words = [wrd.split(" ") for wrd in batch.wrd]
-                self.wer_metric.append(ids, predicted_words, target_words)
+                self.bleu_metric.append(ids, predicted_words, target_words)
 
             # compute the accuracy of the one-step-forward prediction
             self.acc_metric.append(p_seq, tokens_eos, tokens_eos_lens)
@@ -213,7 +213,7 @@ class ST(sb.core.Brain):
     #     valid_optimizers["model_optimizer"] = optimizers["model_optimizer"]
     #     return valid_optimizers
 
-     def on_evaluate_start(self, max_key=None, min_key=None):
+    def on_evaluate_start(self, max_key=None, min_key=None):
         """perform checkpoint averge if needed"""
         super().on_evaluate_start()
 
@@ -315,7 +315,7 @@ class ST(sb.core.Brain):
                 valid_stats=stage_stats,
             )
 
-            self.checkpointer.save_and_keep_only(
+            self.checkpointer.save_and_keep_only(test_data,
                 meta={"BLEU": stage_stats["BLEU"], "epoch": epoch},
                 max_keys=["BLEU"],
                 num_to_keep=self.hparams.avg_checkpoints,
@@ -331,7 +331,7 @@ class ST(sb.core.Brain):
                 test_stats=stage_stats,
             )
             if if_main_process():
-                with open(self.hparams.test_wer_file, "w") as w:
+                with open(self.hparams.test_bleu_file, "w") as w:
                     self.bleu_metric.write_stats(w)
 
             # save the averaged checkpoint at the end of the evaluation stage
@@ -355,22 +355,84 @@ def dataio_prepare(hparams):
     It also defines the data processing pipeline through user-defined functions.
     """
 
+
     data_folder = hparams["data_folder"]
+
+    @sb.utils.data_pipeline.takes("path")
+    @sb.utils.data_pipeline.provides("sig")
+    def audio_pipeline(wav):
+        """Load the audio signal. This is done on the CPU in the `collate_fn`."""
+        sig = sb.dataio.dataio.read_audio(wav)
+        return sig
+
+
+    @sb.utils.data_pipeline.takes("path")
+    @sb.utils.data_pipeline.provides("sig")
+    def audio_pipeline_train(wav):
+        # Speed Perturb is done here so it is multi-threaded with the
+        # workers of the dataloader (faster).
+        if "speed_perturb" in hparams:
+            sig = sb.dataio.dataio.read_audio(wav)
+            sig = hparams["speed_perturb"](sig.unsqueeze(0)).squeeze(0)
+        else:
+            sig = sb.dataio.dataio.read_audio(wav)
+        return sig
+
+    # 3. Define text pipeline:
+    @sb.utils.data_pipeline.takes("trans")
+    @sb.utils.data_pipeline.provides(
+        "trans", "tokens_list", "tokens_bos", "tokens_eos", "tokens"
+    )
+    def text_pipeline(wrd):
+        yield wrd
+        tokens_list = tokenizer.encode_as_ids(wrd)
+        yield tokens_list
+        tokens_bos = torch.LongTensor([hparams["bos_index"]] + (tokens_list))
+        yield tokens_bos
+        tokens_eos = torch.LongTensor(tokens_list + [hparams["eos_index"]])
+        yield tokens_eos
+        tokens = torch.LongTensor(tokens_list)
+        yield tokens
+
 
     train_data = sb.dataio.dataset.DynamicItemDataset.from_json(
         json_path=hparams["train_json"], replacements={"data_root": data_folder},
+        dynamic_items=[audio_pipeline_train, text_pipeline],
+            output_keys=[
+                "id",
+                "sig",
+                "trans",
+                "tokens_list",
+                "tokens_bos",
+                "tokens_eos", 
+                "tokens"
+            ],
+    )
+
+    valid_data = sb.dataio.dataset.DynamicItemDataset.from_json(
+        json_path=hparams["valid_json"], replacements={"data_root": data_folder},
+        dynamic_items=[audio_pipeline_train, text_pipeline],
+            output_keys=[
+                "id",
+                "sig",
+                "wrd",
+                "tokens_list",
+                "tokens_bos",
+                "tokens_eos", 
+                "tokens"
+            ],
     )
 
     if hparams["sorting"] == "ascending":
         # we sort training data to speed up training and get better results.
         train_data = train_data.filtered_sorted(sort_key="duration")
+        valid_data = valid_data.filtered_sorted(sort_key="duration")
         # when sorting do not shuffle in dataloader ! otherwise is pointless
         hparams["train_dataloader_opts"]["shuffle"] = False
 
     elif hparams["sorting"] == "descending":
-        train_data = train_data.filtered_sorted(
-            sort_key="duration", reverse=True
-        )
+        train_data = train_data.filtered_sorted(sort_key="duration", reverse=True)
+        valid_data = valid_data.filtered_sorted(sort_key="duration", reverse=True)
         # when sorting do not shuffle in dataloader ! otherwise is pointless
         hparams["train_dataloader_opts"]["shuffle"] = False
 
@@ -381,24 +443,41 @@ def dataio_prepare(hparams):
         raise NotImplementedError(
             "sorting must be random, ascending or descending"
         )
-    valid_data = sb.dataio.dataset.DynamicItemDataset.from_json(
-        json_path=hparams["valid_json"], replacements={"data_root": data_folder},
+   
+    
+
+    # # test is separate
+    # test_datasets = {}
+    # for json_file in hparams["test_json"]:
+    #     name = Path(json_file).stem
+    #     print("name:", name)
+    #     test_datasets[name] = sb.dataio.dataset.DynamicItemDataset.from_json(
+    #         json_path=json_file, replacements={"data_root": data_folder}
+    #     )
+    #     test_datasets[name] = test_datasets[name].filtered_sorted(
+    #         sort_key="duration"
+    #     )
+
+    test_data = sb.dataio.dataset.DynamicItemDataset.from_json(
+        json_path=hparams["test_json"], replacements={"data_root": data_folder},
+        dynamic_items=[audio_pipeline_train, text_pipeline],
+            output_keys=[
+                "id",
+                "sig",
+                "wrd",
+                "tokens_list",
+                "tokens_bos",
+                "tokens_eos", 
+                "tokens"
+            ],
     )
-    valid_data = valid_data.filtered_sorted(sort_key="duration")
+    # test_data = test_data.filtered_sorted(sort_key="duration")
 
-    # test is separate
-    test_datasets = {}
-    for json_file in hparams["test_json"]:
-        name = Path(json_file).stem
-        test_datasets[name] = sb.dataio.dataset.DynamicItemDataset.from_json(
-            json_path=json_file, replacements={"data_root": data_folder}
-        )
-        test_datasets[name] = test_datasets[name].filtered_sorted(
-            sort_key="duration"
-        )
+    # datasets = [train_data, valid_data] + [i for k, i in test_datasets.items()]
+    # valtest_datasets = [valid_data] + [i for k, i in test_datasets.items()]
 
-    datasets = [train_data, valid_data] + [i for k, i in test_datasets.items()]
-    valtest_datasets = [valid_data] + [i for k, i in test_datasets.items()]
+    # datasets = [train_data, valid_data, test_data]
+    # valtest_datasets = [valid_data, test_data] 
 
     # We get the tokenizer as we need it to encode the labels when creating
     # mini-batches.
@@ -406,41 +485,49 @@ def dataio_prepare(hparams):
 
     # Define audio pipeline. In this case, we simply read the path contained
     # in the variable wav with the audio reader.
-    @sb.utils.data_pipeline.takes("wav")
-    @sb.utils.data_pipeline.provides("sig")
-    def audio_pipeline(wav):
-        """Load the audio signal. This is done on the CPU in the `collate_fn`."""
-        sig = sb.dataio.dataio.read_audio(wav)
-        return sig
+   
+    
 
-    sb.dataio.dataset.add_dynamic_item(valtest_datasets, audio_pipeline)
+    # sb.dataio.dataset.add_dynamic_item(valtest_datasets, audio_pipeline)
 
-    @sb.utils.data_pipeline.takes("wav")
-    @sb.utils.data_pipeline.provides("sig")
-    def sp_audio_pipeline_train(wav):
-        """Load the audio signal. This is done on the CPU in the `collate_fn`."""
-        sig = sb.dataio.dataio.read_audio(wav)
-        sig = sig.unsqueeze(0)
-        sig = hparams["speed_perturb"](sig)
-        sig = sig.squeeze(0)
-        return sig
+    # @sb.utils.data_pipeline.takes("wav")
+    # @sb.utils.data_pipeline.provides("sig")
+    # def sp_audio_pipeline_train(wav):
+    #     """Load the audio signal. This is done on the CPU in the `collate_fn`."""
+    #     sig = sb.dataio.dataio.read_audio(wav)
+    #     sig = sig.unsqueeze(0)
+    #     sig = hparams["speed_perturb"](sig)
+    #     sig = sig.squeeze(0)
+    #     return sig
 
-    # Define text processing pipeline. We start from the raw text and then
-    # encode it using the tokenizer. The tokens with BOS are used for feeding
-    # decoder during training, the tokens with EOS for computing the cost function.
-    @sb.utils.data_pipeline.takes("trans")
-    @sb.utils.data_pipeline.provides(
-        "trans", "tokens_list", "tokens_bos", "tokens_eos"
-    )
-    def reference_text_pipeline(translation):
-        """Processes the transcriptions to generate proper labels"""
-        yield translation
-        tokens_list = tokenizer.sp.encode_as_ids(translation)
-        yield tokens_list
-        tokens_bos = torch.LongTensor([hparams["bos_index"]] + (tokens_list))
-        yield tokens_bos
-        tokens_eos = torch.LongTensor(tokens_list + [hparams["eos_index"]])
-        yield tokens_eos
+    # sb.dataio.dataset.add_dynamic_item([train_data], audio_pipeline_train)
+
+    # # Define text processing pipeline. We start from the raw text and then
+    # # encode it using the tokenizer. The tokens with BOS are used for feeding
+    # # decoder during training, the tokens with EOS for computing the cost function.
+    # @sb.utils.data_pipeline.takes("trans")
+    # @sb.utils.data_pipeline.provides(
+    #     "trans", "tokens_list", "tokens_bos", "tokens_eos", "tokens"
+    # )
+    # def text_pipeline(translation):
+    #     """Processes the transcriptions to generate proper labels"""
+    #     yield translation
+    #     tokens_list = tokenizer.sp.encode_as_ids(translation)
+    #     yield tokens_list
+    #     tokens_bos = torch.LongTensor([hparams["bos_index"]] + (tokens_list))
+    #     yield tokens_bos
+    #     tokens_eos = torch.LongTensor(tokens_list + [hparams["eos_index"]])
+    #     yield tokens_eos
+
+    
+    # sb.dataio.dataset.add_dynamic_item(datasets, text_pipeline)
+
+    # 4. Set output:
+    # sb.dataio.dataset.set_output_keys(
+    #     datasets, ["id", "sig", "wrd", "tokens_bos", "tokens_eos", "tokens"],
+    # )
+
+
 
     # data_folder = hparams["data_folder"]
 
@@ -568,12 +655,45 @@ def dataio_prepare(hparams):
     #         "sorting must be random, ascending or descending"
     #     )
 
-    return datasets, tokenizer
+    # return datasets, tokenizer
+
+    train_batch_sampler = None
+    valid_batch_sampler = None
+    if hparams["dynamic_batching"]:
+        from speechbrain.dataio.sampler import DynamicBatchSampler  # noqa
+
+        dynamic_hparams_train = hparams["dynamic_batch_sampler_train"]
+        dynamic_hparams_valid = hparams["dynamic_batch_sampler_valid"]
+
+        # print(dynamic_hparams_train)
+
+        train_batch_sampler = DynamicBatchSampler(
+            train_data,
+            length_func=lambda x: x["duration"],
+            **dynamic_hparams_train,
+        )
+        valid_batch_sampler = DynamicBatchSampler(
+            valid_data,
+            length_func=lambda x: x["duration"],
+            **dynamic_hparams_valid,
+        )
+
+    return (
+        train_data,
+        valid_data,
+        test_data,
+        tokenizer,
+        train_batch_sampler,
+        valid_batch_sampler,
+    )
 
 
 if __name__ == "__main__":
     # Load hyperparameters file with command-line overrides
     hparams_file, run_opts, overrides = sb.parse_arguments(sys.argv[1:])
+    print("run_opts:", run_opts)
+    print("overrides:", overrides)
+    print("hparams_file:", hparams_file)
     with open(hparams_file, encoding="utf-8") as fin:
         hparams = load_hyperpyyaml(fin, overrides)
 
@@ -590,14 +710,6 @@ if __name__ == "__main__":
         overrides=overrides,
     )
 
-    # Create main experiment class
-    st_brain = ST(
-        modules=hparams["modules"],
-        hparams=hparams,
-        run_opts=run_opts,
-        checkpointer=hparams["checkpointer"],
-    )
-
     # Data preparation
     import prepare_iwslt22
     # import prepare_indicst
@@ -611,28 +723,114 @@ if __name__ == "__main__":
             },
         )
 
-    # Load datasets for training, valid, and test, trains and applies tokenizer
-    datasets, tokenizer = dataio_prepare(hparams)
+    # here we create the datasets objects as well as tokenization and encoding
+    (
+        train_data,
+        valid_data,
+        test_data,
+        tokenizer,
+        train_bsampler,
+        valid_bsampler,
+    ) = dataio_prepare(hparams)
 
-    # Before training, we drop some of the wav2vec 2.0 Transformer Encoder layers
-    st_brain.modules.wav2vec2.model.encoder.layers = (
-        st_brain.modules.wav2vec2.model.encoder.layers[
-            : hparams["keep_n_layers"]
-        ]
+     # We download the pretrained LM from HuggingFace (or elsewhere depending on
+    # the path given in the YAML file). The tokenizer is loaded at the same time.
+    run_on_main(hparams["pretrainer"].collect_files)
+    hparams["pretrainer"].load_collected()
+
+    # Init wandb
+    if hparams['use_wandb']:
+        hparams['train_logger'] = hparams['wandb_logger']()
+        
+    if hparams['no_lm']:
+        print('Evaluate without LM.')
+        hparams['test_search'] = hparams['valid_search']
+        hparams["output_bleu_folder"] = os.path.join(hparams["output_bleu_folder"], 'no_lm')
+
+    # Create main experiment class
+    st_brain = ST(
+        modules=hparams["modules"],
+        opt_class=hparams["Adam"],
+        hparams=hparams,
+        run_opts=run_opts,
+        checkpointer=hparams["checkpointer"],
     )
 
-    # Training
-    st_brain.fit(
-        st_brain.hparams.epoch_counter,
-        datasets["train"],
-        datasets["valid"],
-        train_loader_kwargs=hparams["dataloader_options"],
-        valid_loader_kwargs=hparams["test_dataloader_options"],
-    )
+    
+    # # # Load datasets for training, valid, and test, trains and applies tokenizer
+    # # datasets, tokenizer = dataio_prepare(hparams)
 
-    # Test
-    for dataset in ["valid", "test"]:
+    # # Before training, we drop some of the wav2vec 2.0 Transformer Encoder layers
+    # st_brain.modules.wav2vec2.model.encoder.layers = (
+    #     st_brain.modules.wav2vec2.model.encoder.layers[
+    #         : hparams["keep_n_layers"]
+    #     ]
+    # )
+
+    # # Training
+    # st_brain.fit(
+    #     st_brain.hparams.epoch_counter,
+    #     datasets["train"],
+    #     datasets["valid"],
+    #     train_loader_kwargs=hparams["dataloader_options"],
+    #     valid_loader_kwargs=hparams["test_dataloader_options"],
+    # )
+
+    # # Test
+    # for dataset in ["valid", "test"]:
+    #     st_brain.evaluate(
+    #         datasets[dataset],
+    #         test_loader_kwargs=hparams["test_dataloader_options"],
+    #     )
+
+    # adding objects to trainer:
+    st_brain.tokenizer = hparams["tokenizer"]
+    train_dataloader_opts = hparams["train_dataloader_opts"]
+    valid_dataloader_opts = hparams["valid_dataloader_opts"]
+
+    if train_bsampler is not None:
+        collate_fn = None
+        if "collate_fn" in train_dataloader_opts:
+            collate_fn = train_dataloader_opts["collate_fn"]
+
+        train_dataloader_opts = {
+            "batch_sampler": train_bsampler,
+            "num_workers": hparams["num_workers"],
+        }
+
+        if collate_fn is not None:
+            train_dataloader_opts["collate_fn"] = collate_fn
+
+    if valid_bsampler is not None:
+        collate_fn = None
+        if "collate_fn" in valid_dataloader_opts:
+            collate_fn = valid_dataloader_opts["collate_fn"]
+
+        valid_dataloader_opts = {"batch_sampler": valid_bsampler}
+
+        if collate_fn is not None:
+            valid_dataloader_opts["collate_fn"] = collate_fn
+
+    if not hparams['skip_train']:
+        # Training
+        st_brain.fit(
+            st_brain.hparams.epoch_counter,
+            train_data,
+            valid_data,
+            train_loader_kwargs=train_dataloader_opts,
+            valid_loader_kwargs=valid_dataloader_opts,
+        )
+
+    # Testing
+    if not os.path.exists(hparams["output_bleu_folder"]):
+        os.makedirs(hparams["output_bleu_folder"])
+
+    for k in test_data.keys():  # keys are test_clean, test_other etc
+        st_brain.hparams.test_bleu_file = os.path.join(
+            hparams["output_bleu_folder"], f"bleu_{k}.txt"
+        )
         st_brain.evaluate(
-            datasets[dataset],
-            test_loader_kwargs=hparams["test_dataloader_options"],
+            test_data[k],
+            max_key="BLEU",
+            test_loader_kwargs=hparams["test_dataloader_opts"],
         )

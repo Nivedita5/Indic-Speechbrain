@@ -303,6 +303,8 @@ def ddp_init_group(run_opts):
 
     local_rank = int(local_rank)
     if not run_opts["distributed_backend"] == "gloo":
+        print("local_rank:", local_rank)
+        print("torch.cuda.device_count():", torch.cuda.device_count())
         if local_rank + 1 > torch.cuda.device_count():
             raise ValueError(
                 "Killing process " + str() + "\n" "Not enough GPUs available!"

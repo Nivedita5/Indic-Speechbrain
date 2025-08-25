@@ -406,6 +406,7 @@ class DynamicItemDataset(Dataset):
         cls, json_path, replacements={}, dynamic_items=[], output_keys=[]
     ):
         """Load a data prep JSON file and create a Dataset based on it."""
+        print("Loading data from json_path:", json_path)
         data = load_data_json(json_path, replacements)
         return cls(data, dynamic_items, output_keys)
 
