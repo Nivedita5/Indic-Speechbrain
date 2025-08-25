@@ -415,7 +415,7 @@ def dataio_prepare(hparams):
             output_keys=[
                 "id",
                 "sig",
-                "wrd",
+                "trans",
                 "tokens_list",
                 "tokens_bos",
                 "tokens_eos", 
@@ -464,7 +464,7 @@ def dataio_prepare(hparams):
             output_keys=[
                 "id",
                 "sig",
-                "wrd",
+                "trans",
                 "tokens_list",
                 "tokens_bos",
                 "tokens_eos", 
